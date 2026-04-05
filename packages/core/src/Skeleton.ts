@@ -53,6 +53,8 @@ export class Skeleton {
 
   /**
    * Reset all slots to their setup-pose attachment from the current skin.
+   * For slots with no default attachment name, checks if the skin provides
+   * any attachment for that slot (equipment skin composition).
    */
   setSlotsToSetupPose(): void {
     for (let i = 0; i < this.slots.length; i++) {
@@ -69,6 +71,17 @@ export class Skeleton {
         slot.attachment = this.skin.getAttachment(i, sd.attachmentName);
       } else {
         slot.attachment = null;
+      }
+    }
+
+    // For slots still null, check if the skin has any attachment for that slot.
+    // This handles equipment skins where the slot has no default attachment.
+    if (this.skin) {
+      for (const entry of this.skin.getEntries()) {
+        const slot = this.slots[entry.slotIndex];
+        if (slot && slot.attachment === null) {
+          slot.attachment = entry.attachment;
+        }
       }
     }
   }
