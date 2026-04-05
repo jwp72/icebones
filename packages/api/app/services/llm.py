@@ -77,13 +77,49 @@ class OpenAIProvider:
         return response.choices[0].message.content, model
 
 
+class OpenRouterProvider:
+    """OpenRouter LLM provider — routes to any model via OpenAI-compatible API."""
+
+    def __init__(self, api_key: str, model: str = "anthropic/claude-sonnet-4"):
+        if not _openai_available:
+            raise RuntimeError(
+                "openai package is not installed. Install it with: pip install openai"
+            )
+        if not api_key:
+            raise ValueError(
+                "OpenRouter API key is required. Set OPENROUTER_API_KEY in your environment."
+            )
+        self.client = openai.AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+        self.model = model
+
+    async def chat(
+        self, system: str, messages: list[dict], max_tokens: int = 1024
+    ) -> tuple[str, str]:
+        all_messages = [{"role": "system", "content": system}] + messages
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=all_messages,
+        )
+        return response.choices[0].message.content, self.model
+
+
 def get_llm_provider(
-    provider: str, anthropic_key: str, openai_key: str
+    provider: str,
+    anthropic_key: str = "",
+    openai_key: str = "",
+    openrouter_key: str = "",
+    openrouter_model: str = "anthropic/claude-sonnet-4",
 ) -> LLMProvider:
     """Factory function to create the appropriate LLM provider."""
     if provider == "claude":
         return ClaudeProvider(anthropic_key)
     elif provider == "openai":
         return OpenAIProvider(openai_key)
+    elif provider == "openrouter":
+        return OpenRouterProvider(openrouter_key, openrouter_model)
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")

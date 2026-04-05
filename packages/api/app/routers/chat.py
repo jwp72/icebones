@@ -46,6 +46,8 @@ async def rag_chat(request: ChatRequest):
             provider=settings.llm_provider,
             anthropic_key=settings.anthropic_api_key,
             openai_key=settings.openai_api_key,
+            openrouter_key=settings.openrouter_api_key,
+            openrouter_model=settings.openrouter_model,
         )
     except (RuntimeError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
