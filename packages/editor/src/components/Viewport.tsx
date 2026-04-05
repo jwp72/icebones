@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
-import { Application, Graphics, Container } from 'pixi.js';
+import { Application, Graphics, Container, Sprite, Texture } from 'pixi.js';
 import { useDocumentStore, type BoneNode } from '../store/documentStore';
 import { useEditorStore } from '../store/editorStore';
 import { useCommandStore } from '../store/commandStore';
@@ -13,6 +13,10 @@ export function Viewport() {
   const appRef = useRef<Application | null>(null);
   const stageContainerRef = useRef<Container | null>(null);
   const gridGraphicsRef = useRef<Graphics | null>(null);
+  const slotContainerRef = useRef<Container | null>(null);
+  const slotSpritesRef = useRef<Map<string, Sprite>>(new Map());
+  const slotPlaceholdersRef = useRef<Map<string, Graphics>>(new Map());
+  const textureCache = useRef<Map<string, Texture>>(new Map());
   const bonesGraphicsRef = useRef<Graphics | null>(null);
   const isPanningRef = useRef(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
@@ -20,6 +24,7 @@ export function Viewport() {
   const animFrameRef = useRef(0);
 
   const renderLoop = useCallback(() => {
+    drawSlotAttachments();
     drawBones();
     animFrameRef.current = requestAnimationFrame(renderLoop);
   }, []);
@@ -56,6 +61,11 @@ export function Viewport() {
       const gridGfx = new Graphics();
       worldContainer.addChild(gridGfx);
       gridGraphicsRef.current = gridGfx;
+
+      // Slot attachment sprites (rendered between grid and bones)
+      const slotContainer = new Container();
+      worldContainer.addChild(slotContainer);
+      slotContainerRef.current = slotContainer;
 
       // Bones graphics
       const bonesGfx = new Graphics();
@@ -239,6 +249,150 @@ export function Viewport() {
         gfx.closePath();
         gfx.stroke({ width: 1 / zoom, color: 0xffffff, alpha: 0.7 });
       }
+    }
+  }
+
+  function drawSlotAttachments() {
+    const slotContainer = slotContainerRef.current;
+    if (!slotContainer) return;
+
+    const { bones, slots, skins, images } = useDocumentStore.getState();
+    const { selectedSkinId } = useEditorStore.getState();
+
+    if (bones.length === 0 || slots.length === 0) {
+      // Hide all existing sprites/placeholders
+      for (const sprite of slotSpritesRef.current.values()) sprite.visible = false;
+      for (const gfx of slotPlaceholdersRef.current.values()) gfx.visible = false;
+      return;
+    }
+
+    // Find the active skin (selected or first)
+    const activeSkin = skins.find((s) => s.id === selectedSkinId) ?? skins[0] ?? null;
+    if (!activeSkin) {
+      for (const sprite of slotSpritesRef.current.values()) sprite.visible = false;
+      for (const gfx of slotPlaceholdersRef.current.values()) gfx.visible = false;
+      return;
+    }
+
+    const worldPositions = computeWorldPositions(bones);
+    const boneMap = new Map<string, BoneNode>();
+    for (const b of bones) boneMap.set(b.id, b);
+    const rotCache = new Map<string, number>();
+
+    // Track which slots are active this frame
+    const activeSlotIds = new Set<string>();
+
+    for (const slot of slots) {
+      // Find attachment for this slot from the active skin
+      let attachment: { name: string; regionName: string; x: number; y: number; width: number; height: number } | null = null;
+      for (const [key, att] of activeSkin.attachments) {
+        const sepIdx = key.indexOf(':');
+        const keySlotId = sepIdx >= 0 ? key.substring(0, sepIdx) : key;
+        if (keySlotId === slot.id && att.name === slot.attachmentName) {
+          attachment = att;
+          break;
+        }
+      }
+
+      if (!attachment || !slot.attachmentName) continue;
+      activeSlotIds.add(slot.id);
+
+      const bonePos = worldPositions.get(slot.boneId);
+      if (!bonePos) continue;
+
+      const worldRot = getWorldRotation(slot.boneId, boneMap, rotCache);
+      const regionName = attachment.regionName || attachment.name;
+      const imageDataUrl = images.get(regionName);
+
+      if (imageDataUrl) {
+        // Render as a sprite with the loaded image
+        let sprite = slotSpritesRef.current.get(slot.id);
+        if (!sprite) {
+          sprite = new Sprite();
+          sprite.anchor.set(0.5, 0.5);
+          slotContainer.addChild(sprite);
+          slotSpritesRef.current.set(slot.id, sprite);
+        }
+
+        // Load/update texture from data URL cache
+        let texture = textureCache.current.get(regionName);
+        if (!texture) {
+          texture = Texture.from(imageDataUrl);
+          textureCache.current.set(regionName, texture);
+        }
+        sprite.texture = texture;
+        sprite.visible = true;
+
+        // Position at bone world position + attachment offset
+        const cos = Math.cos(worldRot);
+        const sin = Math.sin(worldRot);
+        sprite.position.set(
+          bonePos.x + cos * attachment.x - sin * attachment.y,
+          bonePos.y + sin * attachment.x + cos * attachment.y,
+        );
+        sprite.rotation = worldRot;
+
+        // Scale sprite to match attachment dimensions
+        if (sprite.texture.width > 0 && sprite.texture.height > 0) {
+          sprite.scale.set(
+            attachment.width / sprite.texture.width,
+            attachment.height / sprite.texture.height,
+          );
+        }
+
+        // Hide placeholder if it exists
+        const placeholder = slotPlaceholdersRef.current.get(slot.id);
+        if (placeholder) placeholder.visible = false;
+      } else {
+        // Render placeholder rectangle
+        let placeholder = slotPlaceholdersRef.current.get(slot.id);
+        if (!placeholder) {
+          placeholder = new Graphics();
+          slotContainer.addChild(placeholder);
+          slotPlaceholdersRef.current.set(slot.id, placeholder);
+        }
+        placeholder.clear();
+        placeholder.visible = true;
+
+        const w = attachment.width || 40;
+        const h = attachment.height || 40;
+
+        // Draw centered rect at bone position + attachment offset
+        const cos = Math.cos(worldRot);
+        const sin = Math.sin(worldRot);
+        const cx = bonePos.x + cos * attachment.x - sin * attachment.y;
+        const cy = bonePos.y + sin * attachment.x + cos * attachment.y;
+
+        // Calculate the 4 corners of the rotated rectangle
+        const hw = w / 2;
+        const hh = h / 2;
+        const corners = [
+          { x: cx + cos * (-hw) - sin * (-hh), y: cy + sin * (-hw) + cos * (-hh) },
+          { x: cx + cos * hw - sin * (-hh), y: cy + sin * hw + cos * (-hh) },
+          { x: cx + cos * hw - sin * hh, y: cy + sin * hw + cos * hh },
+          { x: cx + cos * (-hw) - sin * hh, y: cy + sin * (-hw) + cos * hh },
+        ];
+
+        placeholder.moveTo(corners[0].x, corners[0].y);
+        placeholder.lineTo(corners[1].x, corners[1].y);
+        placeholder.lineTo(corners[2].x, corners[2].y);
+        placeholder.lineTo(corners[3].x, corners[3].y);
+        placeholder.closePath();
+        placeholder.stroke({ width: 1 / (stageContainerRef.current?.scale.x ?? 1), color: 0x6666aa, alpha: 0.5 });
+        placeholder.fill({ color: 0x3333aa, alpha: 0.1 });
+
+        // Hide sprite if it exists
+        const sprite = slotSpritesRef.current.get(slot.id);
+        if (sprite) sprite.visible = false;
+      }
+    }
+
+    // Hide inactive sprites/placeholders
+    for (const [id, sprite] of slotSpritesRef.current) {
+      if (!activeSlotIds.has(id)) sprite.visible = false;
+    }
+    for (const [id, gfx] of slotPlaceholdersRef.current) {
+      if (!activeSlotIds.has(id)) gfx.visible = false;
     }
   }
 

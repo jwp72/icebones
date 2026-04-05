@@ -3,6 +3,7 @@ import { useDocumentStore } from '../store/documentStore';
 import { useCommandStore } from '../store/commandStore';
 import { exportToFile } from '../utils/exportJson';
 import { importFromFile } from '../utils/importJson';
+import { importImage } from '../utils/importImage';
 
 /**
  * Top toolbar with tools, file operations, and edit operations.
@@ -68,6 +69,9 @@ export function Toolbar() {
         </button>
         <button onClick={exportToFile} title="Export as JSON file">
           Export
+        </button>
+        <button onClick={importImage} title="Import image for region attachment">
+          Image
         </button>
       </div>
 

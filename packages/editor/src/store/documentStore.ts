@@ -62,6 +62,7 @@ interface DocumentState {
   slots: SlotNode[];
   skins: SkinNode[];
   animations: AnimNode[];
+  images: Map<string, string>; // regionName -> data URL (base64)
   width: number;
   height: number;
 
@@ -78,6 +79,8 @@ interface DocumentState {
   updateAnimation: (id: string, updates: Partial<AnimNode>) => void;
   addKeyframe: (animId: string, timelineType: string, targetId: string, time: number, value: Record<string, number | string | null>) => void;
   removeKeyframe: (animId: string, timelineType: string, targetId: string, time: number) => void;
+  addImage: (name: string, dataUrl: string) => void;
+  removeImage: (name: string) => void;
 
   exportJSON: () => Record<string, unknown>;
   importJSON: (json: Record<string, unknown>) => void;
@@ -94,6 +97,7 @@ const initialState = {
   slots: [] as SlotNode[],
   skins: [] as SkinNode[],
   animations: [] as AnimNode[],
+  images: new Map<string, string>(),
   width: 256,
   height: 384,
 };
@@ -236,6 +240,22 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     }));
   },
 
+  addImage(name, dataUrl) {
+    set((s) => {
+      const images = new Map(s.images);
+      images.set(name, dataUrl);
+      return { images };
+    });
+  },
+
+  removeImage(name) {
+    set((s) => {
+      const images = new Map(s.images);
+      images.delete(name);
+      return { images };
+    });
+  },
+
   removeKeyframe(animId, timelineType, targetId, time) {
     set((s) => ({
       animations: s.animations.map((anim) => {
@@ -259,8 +279,8 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   exportJSON() {
-    const { bones, slots, skins, animations, width, height } = get();
-    return exportToJSON(bones, slots, skins, animations, width, height);
+    const { bones, slots, skins, animations, images, width, height } = get();
+    return exportToJSON(bones, slots, skins, animations, images, width, height);
   },
 
   importJSON(json) {
@@ -270,7 +290,7 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
   reset() {
     nextId = 1;
-    set({ ...initialState });
+    set({ ...initialState, images: new Map<string, string>() });
   },
 }));
 
@@ -281,6 +301,7 @@ function exportToJSON(
   slots: SlotNode[],
   skins: SkinNode[],
   animations: AnimNode[],
+  images: Map<string, string>,
   width: number,
   height: number,
 ): Record<string, unknown> {
@@ -387,12 +408,19 @@ function exportToJSON(
     jsonAnimations[anim.name] = animObj;
   }
 
+  // Build images metadata for export (base64 data URLs stored separately)
+  const jsonImages: Record<string, string> = {};
+  for (const [name, dataUrl] of images) {
+    jsonImages[name] = dataUrl;
+  }
+
   return {
     skeleton: { icebones: '1.0.0', width, height },
     bones: jsonBones,
     slots: jsonSlots,
     skins: jsonSkins,
     animations: jsonAnimations,
+    ...(images.size > 0 ? { images: jsonImages } : {}),
   };
 }
 
@@ -402,6 +430,7 @@ function importFromJSON(json: Record<string, any>): {
   slots: SlotNode[];
   skins: SkinNode[];
   animations: AnimNode[];
+  images: Map<string, string>;
   width: number;
   height: number;
 } {
@@ -410,6 +439,7 @@ function importFromJSON(json: Record<string, any>): {
   const slots: SlotNode[] = [];
   const skins: SkinNode[] = [];
   const animations: AnimNode[] = [];
+  const images = new Map<string, string>();
 
   // Read dimensions from skeleton metadata
   const skeletonMeta = json.skeleton ?? {};
@@ -554,6 +584,15 @@ function importFromJSON(json: Record<string, any>): {
     }
   }
 
+  // Import images
+  if (json.images) {
+    for (const [name, dataUrl] of Object.entries(json.images)) {
+      if (typeof dataUrl === 'string') {
+        images.set(name, dataUrl);
+      }
+    }
+  }
+
   // Fix: compute nextId from the max numeric suffix across all generated IDs
   // to prevent collisions when creating new nodes after import
   let maxNum = 0;
@@ -572,5 +611,5 @@ function importFromJSON(json: Record<string, any>): {
   }
   nextId = maxNum + 1;
 
-  return { bones, slots, skins, animations, width, height };
+  return { bones, slots, skins, animations, images, width, height };
 }
