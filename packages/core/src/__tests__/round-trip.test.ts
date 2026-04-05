@@ -3,7 +3,6 @@ import { SkeletonJson } from '../SkeletonJson.js';
 import { Skeleton } from '../Skeleton.js';
 import { AnimationState } from '../AnimationState.js';
 import { RegionAttachment } from '../Attachment.js';
-import { RotateTimeline, TranslateTimeline, ScaleTimeline } from '../Timeline.js';
 
 /**
  * Round-trip integration test: editor export -> runtime import -> render verification.
@@ -232,10 +231,6 @@ describe('Round-trip integration: editor export -> runtime import -> render', ()
     // Start playing the idle animation
     const entry = animState.setAnimation(0, 'idle', false);
     expect(entry).not.toBeNull();
-
-    // Record initial bone state
-    const hipInitialY = skeleton.bones[1].y;
-    const hipInitialRotation = skeleton.bones[1].rotation;
 
     // Advance to the midpoint (0.5s)
     animState.update(0.5);
