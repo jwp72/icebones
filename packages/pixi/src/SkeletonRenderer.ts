@@ -152,15 +152,25 @@ export class SkeletonRenderer extends Container {
       // We use the bone's world transform combined with the attachment's local transform.
       const bone = slot.bone;
 
+      // Scale the attachment to match its declared width/height vs texture pixel size.
+      // This is how Spine works: attachment width/height define the display size,
+      // and the texture is scaled to fit.
+      let texScaleX = region.scaleX;
+      let texScaleY = region.scaleY;
+      if (texture && texture.width > 0 && texture.height > 0) {
+        texScaleX *= region.width / texture.width;
+        texScaleY *= region.height / texture.height;
+      }
+
       // The attachment has its own local offset/rotation/scale on top of the bone.
       // Compute the combined transform: bone world * attachment local.
       const attRad = (region.rotation * Math.PI) / 180;
       const attCos = Math.cos(attRad);
       const attSin = Math.sin(attRad);
-      const la = attCos * region.scaleX;
-      const lb = attSin * region.scaleX;
-      const lc = -attSin * region.scaleY;
-      const ld = attCos * region.scaleY;
+      const la = attCos * texScaleX;
+      const lb = attSin * texScaleX;
+      const lc = -attSin * texScaleY;
+      const ld = attCos * texScaleY;
 
       // Combined world transform for attachment center:
       // Position = bone.world * attachment.localPos
