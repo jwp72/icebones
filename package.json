@@ -1,0 +1,17 @@
+{
+  "name": "icebones",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Web-based 2D skeletal animation editor and runtime",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
