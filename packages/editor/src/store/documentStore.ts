@@ -34,7 +34,7 @@ export interface SkinAttachment {
 export interface SkinNode {
   id: string;
   name: string;
-  attachments: Map<string, SkinAttachment>; // slotId -> attachment
+  attachments: Map<string, SkinAttachment>; // "slotId:attachmentName" -> attachment
 }
 
 export interface KeyframeNode {
@@ -62,6 +62,8 @@ interface DocumentState {
   slots: SlotNode[];
   skins: SkinNode[];
   animations: AnimNode[];
+  width: number;
+  height: number;
 
   addBone: (parentId: string | null, name: string, x: number, y: number) => string;
   removeBone: (id: string) => void;
@@ -92,6 +94,8 @@ const initialState = {
   slots: [] as SlotNode[],
   skins: [] as SkinNode[],
   animations: [] as AnimNode[],
+  width: 256,
+  height: 384,
 };
 
 export const useDocumentStore = create<DocumentState>()((set, get) => ({
@@ -255,13 +259,13 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
   },
 
   exportJSON() {
-    const { bones, slots, skins, animations } = get();
-    return exportToJSON(bones, slots, skins, animations);
+    const { bones, slots, skins, animations, width, height } = get();
+    return exportToJSON(bones, slots, skins, animations, width, height);
   },
 
   importJSON(json) {
-    const state = importFromJSON(json);
-    set(state);
+    const result = importFromJSON(json);
+    set(result);
   },
 
   reset() {
@@ -277,6 +281,8 @@ function exportToJSON(
   slots: SlotNode[],
   skins: SkinNode[],
   animations: AnimNode[],
+  width: number,
+  height: number,
 ): Record<string, unknown> {
   // Build bone name lookup for parent references
   const boneById = new Map<string, BoneNode>();
@@ -311,17 +317,19 @@ function exportToJSON(
 
   const jsonSkins = skins.map((sk) => {
     const attachments: Record<string, Record<string, unknown>> = {};
-    for (const [slotId, att] of sk.attachments) {
+    for (const [compositeKey, att] of sk.attachments) {
+      // Key format: "slotId:attachmentName"
+      const sepIdx = compositeKey.indexOf(':');
+      const slotId = sepIdx >= 0 ? compositeKey.substring(0, sepIdx) : compositeKey;
       const slot = slotById.get(slotId);
       const slotName = slot ? slot.name : slotId;
-      attachments[slotName] = {
-        [att.name]: {
-          x: att.x,
-          y: att.y,
-          width: att.width,
-          height: att.height,
-          ...(att.regionName !== att.name ? { name: att.regionName } : {}),
-        },
+      if (!attachments[slotName]) attachments[slotName] = {};
+      attachments[slotName][att.name] = {
+        x: att.x,
+        y: att.y,
+        width: att.width,
+        height: att.height,
+        ...(att.regionName !== att.name ? { name: att.regionName } : {}),
       };
     }
     return { name: sk.name, attachments };
@@ -380,7 +388,7 @@ function exportToJSON(
   }
 
   return {
-    skeleton: { icebones: '1.0.0', width: 256, height: 384 },
+    skeleton: { icebones: '1.0.0', width, height },
     bones: jsonBones,
     slots: jsonSlots,
     skins: jsonSkins,
@@ -394,12 +402,19 @@ function importFromJSON(json: Record<string, any>): {
   slots: SlotNode[];
   skins: SkinNode[];
   animations: AnimNode[];
+  width: number;
+  height: number;
 } {
   nextId = 1;
   const bones: BoneNode[] = [];
   const slots: SlotNode[] = [];
   const skins: SkinNode[] = [];
   const animations: AnimNode[] = [];
+
+  // Read dimensions from skeleton metadata
+  const skeletonMeta = json.skeleton ?? {};
+  const width: number = skeletonMeta.width ?? 256;
+  const height: number = skeletonMeta.height ?? 384;
 
   const boneNameToId = new Map<string, string>();
 
@@ -451,7 +466,7 @@ function importFromJSON(json: Record<string, any>): {
           const slotAtts = skJson.attachments[slotName];
           for (const attName of Object.keys(slotAtts)) {
             const attJson = slotAtts[attName];
-            attachments.set(slotId, {
+            attachments.set(`${slotId}:${attName}`, {
               name: attName,
               regionName: attJson.name ?? attName,
               x: attJson.x ?? 0,
@@ -539,5 +554,23 @@ function importFromJSON(json: Record<string, any>): {
     }
   }
 
-  return { bones, slots, skins, animations };
+  // Fix: compute nextId from the max numeric suffix across all generated IDs
+  // to prevent collisions when creating new nodes after import
+  let maxNum = 0;
+  const allIds = [
+    ...bones.map((b) => b.id),
+    ...slots.map((s) => s.id),
+    ...skins.map((s) => s.id),
+    ...animations.map((a) => a.id),
+  ];
+  for (const id of allIds) {
+    const match = id.match(/_(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
+    }
+  }
+  nextId = maxNum + 1;
+
+  return { bones, slots, skins, animations, width, height };
 }

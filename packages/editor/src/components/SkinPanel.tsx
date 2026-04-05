@@ -74,28 +74,37 @@ export function SkinPanel() {
             <div className="empty-message">No slots to map attachments to.</div>
           ) : (
             slots.map((slot) => {
-              const att = selectedSkin.attachments.get(slot.id);
+              // Collect all attachments for this slot (keys are "slotId:attName")
+              const slotAtts: Array<[string, import('../store/documentStore').SkinAttachment]> = [];
+              for (const [key, att] of selectedSkin.attachments) {
+                const sepIdx = key.indexOf(':');
+                const keySlotId = sepIdx >= 0 ? key.substring(0, sepIdx) : key;
+                if (keySlotId === slot.id) slotAtts.push([key, att]);
+              }
+              const firstAtt = slotAtts.length > 0 ? slotAtts[0][1] : null;
               return (
                 <div key={slot.id} className="property-row">
                   <label style={{ width: 80 }}>{slot.name}</label>
                   <input
                     type="text"
-                    value={att?.name ?? ''}
+                    value={firstAtt?.name ?? ''}
                     placeholder="(no attachment)"
                     onChange={(e) => {
                       const name = e.target.value;
                       const newAttachments = new Map(selectedSkin.attachments);
+                      // Remove all existing entries for this slot
+                      for (const [key] of slotAtts) {
+                        newAttachments.delete(key);
+                      }
                       if (name) {
-                        newAttachments.set(slot.id, {
+                        newAttachments.set(`${slot.id}:${name}`, {
                           name,
                           regionName: name,
-                          x: att?.x ?? 0,
-                          y: att?.y ?? 0,
-                          width: att?.width ?? 0,
-                          height: att?.height ?? 0,
+                          x: firstAtt?.x ?? 0,
+                          y: firstAtt?.y ?? 0,
+                          width: firstAtt?.width ?? 0,
+                          height: firstAtt?.height ?? 0,
                         });
-                      } else {
-                        newAttachments.delete(slot.id);
                       }
                       // Directly update the skin's attachments in the store
                       useDocumentStore.setState((s) => ({
@@ -107,6 +116,11 @@ export function SkinPanel() {
                       }));
                     }}
                   />
+                  {slotAtts.length > 1 && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 4 }}>
+                      +{slotAtts.length - 1} more
+                    </span>
+                  )}
                 </div>
               );
             })
