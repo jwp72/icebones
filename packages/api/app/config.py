@@ -6,7 +6,7 @@ _env_file = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://icebones:icebones@localhost:5432/icebones"
+    database_url: str = "postgresql://icebones:icebones@localhost:5433/icebones"
     voyage_api_key: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""

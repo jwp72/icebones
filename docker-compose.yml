@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: icebones
+      POSTGRES_USER: icebones
+      POSTGRES_PASSWORD: icebones
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U icebones"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./packages/api
+    ports:
+      - "8010:8000"
+    environment:
+      DATABASE_URL: postgresql://icebones:icebones@postgres:5432/icebones
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-claude}
+      DOCS_PATH: /app/docs
+    volumes:
+      - ./docs:/app/docs:ro
+      - ./packages/core/README.md:/app/docs/packages-core-readme.md:ro
+      - ./packages/pixi/README.md:/app/docs/packages-pixi-readme.md:ro
+      - ./packages/editor/README.md:/app/docs/packages-editor-readme.md:ro
+      - ./README.md:/app/docs/project-readme.md:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
